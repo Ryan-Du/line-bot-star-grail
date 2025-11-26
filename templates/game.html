@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>星杯傳說 - 控制台</title>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { background-color: #1a1a1a; color: white; font-family: sans-serif; padding: 20px; text-align: center; }
+        .card { 
+            display: inline-block; padding: 10px 15px; margin: 5px; 
+            border-radius: 5px; background: #444; cursor: pointer; border: 1px solid #666;
+        }
+        .card:hover { background: #666; }
+        .info { margin-bottom: 20px; padding: 10px; background: #333; border-radius: 8px; }
+        #loading { color: #aaa; }
+    </style>
+</head>
+<body>
+    <h2>星杯控制台</h2>
+    
+    <div id="loading">讀取中...</div>
+    
+    <div id="game-area" style="display:none;">
+        <div class="info">
+            <div id="player-name"></div>
+            <div id="player-team"></div>
+        </div>
+        
+        <h3>你的手牌</h3>
+        <div id="hand-list"></div>
+    </div>
+
+    <script>
+        // 從後端接收 LIFF ID
+        const LIFF_ID = "{{ liff_id }}";
+
+        async function main() {
+            await liff.init({ liffId: LIFF_ID });
+            
+            if (!liff.isLoggedIn()) {
+                liff.login();
+                return;
+            }
+
+            const profile = await liff.getProfile();
+            fetchMyStatus(profile.userId);
+        }
+
+        function fetchMyStatus(userId) {
+            fetch('/api/my_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: userId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.error) {
+                    document.getElementById('game-area').innerHTML = `<p style="color:red">${data.error}</p>`;
+                    document.getElementById('game-area').style.display = 'block';
+                    return;
+                }
+
+                document.getElementById('game-area').style.display = 'block';
+                document.getElementById('player-name').innerText = `玩家：${data.name}`;
+                document.getElementById('player-team').innerText = `陣營：${data.team}`;
+                document.getElementById('player-team').style.color = data.team === 'RED' ? '#ff6666' : '#6666ff';
+
+                const handDiv = document.getElementById('hand-list');
+                handDiv.innerHTML = '';
+                data.hand.forEach(card => {
+                    let btn = document.createElement('div');
+                    btn.className = 'card';
+                    btn.innerText = card;
+                    btn.onclick = () => sendMove(card);
+                    handDiv.appendChild(btn);
+                });
+            });
+        }
+
+        function sendMove(cardName) {
+            // 利用 LIFF 在群組代發訊息 (完全免費)
+            liff.sendMessages([{
+                type: 'text',
+                text: `我打出了 [${cardName}]`
+            }]).then(() => {
+                liff.closeWindow();
+            }).catch(err => {
+                alert('請在 LINE 群組中開啟此連結，才能發送訊息');
+            });
+        }
+
+        main();
+    </script>
+</body>
+</html>
