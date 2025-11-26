@@ -51,29 +51,67 @@ def handle_message(event):
     msg = event.message.text.strip()
     user_id = event.source.user_id
     
-    # 指令：加入遊戲
+    # --- 1. 加入遊戲 ---
     if msg == "@加入":
         profile = line_bot_api.get_profile(user_id)
-        
-        # 簡單發幾張牌測試
-        deck = ['火攻擊', '水攻擊', '閃避', '聖盾', '中毒', '虛弱']
-        hand = random.sample(deck, 3)
+        deck = ['火攻擊', '水攻擊', '雷攻擊', '閃避', '聖盾', '閃避'] # 測試用牌堆
+        hand = random.sample(deck, 4)
         
         players_db[user_id] = {
             'name': profile.display_name,
             'team': 'RED' if len(players_db) % 2 == 0 else 'BLUE',
             'hand': hand,
-            'gems': 0
+            'gems': 0,
+            'morale': 15 # 士氣
         }
         
-        reply = f"✅ {profile.display_name} 加入成功！\n你的隊伍：{players_db[user_id]['team']}\n請點連結查看手牌：\nhttps://liff.line.me/{LIFF_ID}"
+        reply = f"✅ {profile.display_name} 加入成功！\n手牌已發放，請點連結查看：\nhttps://liff.line.me/{LIFF_ID}"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
-    # 指令：查狀態 (除錯用)
-    elif msg == "@狀態":
-        if user_id in players_db:
-            p = players_db[user_id]
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=str(p)))
+    # --- 2. 核心戰鬥邏輯 (監聽 LIFF 發出的訊息) ---
+    elif msg.startswith("我打出了 ["):
+        # 解析訊息格式: "我打出了 [火攻擊] 攻擊 紅1"
+        try:
+            # 1. 抓出卡牌名稱
+            parts = msg.split("]") # ['我打出了 [火攻擊', ' 攻擊 紅1']
+            card_name = parts[0].split("[")[1] # '火攻擊'
+            
+            # 2. 抓出目標 (如果有)
+            target = None
+            if len(parts) > 1 and "攻擊" in parts[1]:
+                target = parts[1].replace("攻擊", "").strip() # '紅1'
+
+            # 3. 驗證玩家是否存在
+            if user_id not in players_db:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 你還沒加入遊戲！輸入 @加入"))
+                return
+
+            player = players_db[user_id]
+
+            # 4. 驗證是否有這張牌 (防作弊)
+            if card_name not in player['hand']:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"⚠️ 作弊警告！\n你的手牌裡根本沒有 [{card_name}]！"))
+                return
+
+            # 5. 執行出牌 (移除手牌)
+            player['hand'].remove(card_name)
+            
+            # 6. 建構戰鬥結果回覆
+            result_msg = f"⚡ {player['name']} 打出了【{card_name}】"
+            
+            if target:
+                result_msg += f"\n🎯 目標鎖定：{target}"
+                result_msg += "\n(系統提示：請目標玩家回應，或隊友協助！)"
+            else:
+                result_msg += "\n(防禦/輔助牌生效)"
+
+            result_msg += f"\n\n💳 剩餘手牌數：{len(player['hand'])}"
+
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=result_msg))
+
+        except Exception as e:
+            # 預防解析錯誤導致機器人崩潰
+            print(f"Error: {e}")
 
 if __name__ == "__main__":
     app.run()

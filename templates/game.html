@@ -3,46 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>星杯傳說 - 控制台</title>
+    <title>星杯傳說</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { background-color: #1a1a1a; color: white; font-family: sans-serif; padding: 20px; text-align: center; }
+        body { background-color: #222; color: #fff; font-family: sans-serif; padding: 15px; text-align: center; }
         .card { 
-            display: inline-block; padding: 10px 15px; margin: 5px; 
-            border-radius: 5px; background: #444; cursor: pointer; border: 1px solid #666;
+            display: inline-block; padding: 15px 10px; margin: 5px; 
+            border-radius: 8px; background: #eee; color: #333; cursor: pointer; 
+            width: 80px; font-weight: bold; border: 2px solid #999;
         }
-        .card:hover { background: #666; }
-        .info { margin-bottom: 20px; padding: 10px; background: #333; border-radius: 8px; }
-        #loading { color: #aaa; }
+        .card.atk { background: #ffcccc; border-color: #ff4444; }
+        .card.def { background: #ccffcc; border-color: #44ff44; }
+        
+        .target-btn {
+            display: block; width: 100%; padding: 15px; margin: 10px 0;
+            background: #444; color: white; border: 1px solid #666; border-radius: 5px;
+            font-size: 16px;
+        }
+        #hand-area, #target-area { transition: 0.3s; }
     </style>
 </head>
 <body>
-    <h2>星杯控制台</h2>
-    
     <div id="loading">讀取中...</div>
-    
-    <div id="game-area" style="display:none;">
-        <div class="info">
-            <div id="player-name"></div>
-            <div id="player-team"></div>
-        </div>
-        
+
+    <!-- 手牌區 -->
+    <div id="hand-area" style="display:none;">
         <h3>你的手牌</h3>
         <div id="hand-list"></div>
     </div>
 
+    <!-- 目標選擇區 (預設隱藏) -->
+    <div id="target-area" style="display:none;">
+        <h3 id="target-title">選擇目標</h3>
+        <div id="target-list"></div>
+        <button onclick="cancelTarget()" style="margin-top:20px; background:#666; border:none; padding:10px; color:white;">取消</button>
+    </div>
+
     <script>
-        // 從後端接收 LIFF ID
         const LIFF_ID = "{{ liff_id }}";
+        let myHand = [];
+        let selectedCard = "";
+
+        // 模擬場上玩家 (真實情況應該從後端抓 API)
+        const mockTargets = ["紅1", "紅2", "紅3", "藍1", "藍2", "藍3"];
 
         async function main() {
             await liff.init({ liffId: LIFF_ID });
+            if (!liff.isLoggedIn()) { liff.login(); return; }
             
-            if (!liff.isLoggedIn()) {
-                liff.login();
-                return;
-            }
-
             const profile = await liff.getProfile();
             fetchMyStatus(profile.userId);
         }
@@ -56,40 +64,73 @@
             .then(res => res.json())
             .then(data => {
                 document.getElementById('loading').style.display = 'none';
-                
                 if (data.error) {
-                    document.getElementById('game-area').innerHTML = `<p style="color:red">${data.error}</p>`;
-                    document.getElementById('game-area').style.display = 'block';
+                    document.body.innerHTML = `<p style="color:red">${data.error}</p>`;
                     return;
                 }
-
-                document.getElementById('game-area').style.display = 'block';
-                document.getElementById('player-name').innerText = `玩家：${data.name}`;
-                document.getElementById('player-team').innerText = `陣營：${data.team}`;
-                document.getElementById('player-team').style.color = data.team === 'RED' ? '#ff6666' : '#6666ff';
-
-                const handDiv = document.getElementById('hand-list');
-                handDiv.innerHTML = '';
-                data.hand.forEach(card => {
-                    let btn = document.createElement('div');
-                    btn.className = 'card';
-                    btn.innerText = card;
-                    btn.onclick = () => sendMove(card);
-                    handDiv.appendChild(btn);
-                });
+                
+                myHand = data.hand;
+                renderHand();
             });
         }
 
-        function sendMove(cardName) {
-            // 利用 LIFF 在群組代發訊息 (完全免費)
-            liff.sendMessages([{
-                type: 'text',
-                text: `我打出了 [${cardName}]`
-            }]).then(() => {
-                liff.closeWindow();
-            }).catch(err => {
-                alert('請在 LINE 群組中開啟此連結，才能發送訊息');
+        function renderHand() {
+            const list = document.getElementById('hand-list');
+            list.innerHTML = '';
+            myHand.forEach(card => {
+                let div = document.createElement('div');
+                // 簡單區分顏色
+                let typeClass = card.includes('攻擊') ? 'atk' : 'def';
+                div.className = `card ${typeClass}`;
+                div.innerText = card;
+                div.onclick = () => onCardClick(card);
+                list.appendChild(div);
             });
+            document.getElementById('hand-area').style.display = 'block';
+            document.getElementById('target-area').style.display = 'none';
+        }
+
+        function onCardClick(card) {
+            selectedCard = card;
+            
+            // 如果是攻擊牌，進入目標選擇模式
+            if (card.includes("攻擊") || card.includes("中毒")) {
+                showTargetSelection();
+            } else {
+                // 如果是防禦牌或無需目標，直接發送
+                sendAction(card, null);
+            }
+        }
+
+        function showTargetSelection() {
+            document.getElementById('hand-area').style.display = 'none';
+            document.getElementById('target-area').style.display = 'block';
+            document.getElementById('target-title').innerText = `使用 [${selectedCard}] 攻擊...`;
+            
+            const list = document.getElementById('target-list');
+            list.innerHTML = '';
+            mockTargets.forEach(target => {
+                let btn = document.createElement('button');
+                btn.className = 'target-btn';
+                btn.innerText = target;
+                btn.onclick = () => sendAction(selectedCard, target);
+                list.appendChild(btn);
+            });
+        }
+
+        function cancelTarget() {
+            renderHand();
+        }
+
+        function sendAction(card, target) {
+            let msgText = `我打出了 [${card}]`;
+            if (target) {
+                msgText += ` 攻擊 ${target}`; // 關鍵格式
+            }
+
+            liff.sendMessages([{ type: 'text', text: msgText }])
+            .then(() => liff.closeWindow())
+            .catch(err => alert('發送失敗，請在群組中使用'));
         }
 
         main();
