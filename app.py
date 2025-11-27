@@ -19,6 +19,15 @@ game_deck = []
 discard_pile = []
 current_attack = {}
 
+# ★ 新增：遊戲狀態管理
+game_state = {
+    'turn_order': [],     # ['red1', 'blue1', 'red2', 'blue2']
+    'current_turn_idx': 0, # 目前輪到誰的主動回合
+    'phase': 'WAITING',   # WAITING(未開局), ACTION(主動出牌), RESOLVING(處理攻擊鏈)
+    'attack_chain': None  # 存放目前的攻擊物件
+}
+
+
 # --- 1. 卡牌資料庫 (模擬 cards.json) ---
 try:
     with open('cards.json', 'r', encoding='utf-8') as f:
@@ -71,47 +80,55 @@ def draw_cards(count):
         drawn.append(game_deck.pop())
     return drawn
 
-def resolve_damage(target_id, damage_amount, heal_amount=0):
-    player = players_db.get(target_id)
-    if not player: return "找不到目標"
+# ★ 新增：回合輪替與結束函數
+def next_turn(report_msg=""):
+    """結束目前攻擊鏈，進入下一位玩家的回合"""
+    game_state['attack_chain'] = None
+    game_state['phase'] = 'ACTION'
     
-    final_damage = max(0, damage_amount - heal_amount)
-    msg = f"🛡️ 結算：{player['name']} 受傷 {final_damage} (減免 {heal_amount})"
+    # 輪替到下一位
+    total = len(game_state['turn_order'])
+    game_state['current_turn_idx'] = (game_state['current_turn_idx'] + 1) % total
+    next_player_id = game_state['turn_order'][game_state['current_turn_idx']]
+    next_player = players_db[next_player_id]
     
-    if final_damage > 0:
-        new_cards = draw_cards(final_damage)
-        player['hand'].extend(new_cards)
-        msg += f"\n💥 命中！摸了 {len(new_cards)} 張牌。"
-    else:
-        msg += "\n✨ 傷害抵銷，無事發生。"
-    return msg
+    return f"{report_msg}\n\n👉 輪到 [{next_player['team']}] {next_player['name']} 的回合！"
 
-def check_counter_validity(attack_card_name, respond_card_name):
-    atk_data = CARD_MAP.get(attack_card_name)
+def check_counter_validity(attack_elem, respond_card_name):
+    """檢查應戰是否合法"""
     resp_data = CARD_MAP.get(respond_card_name)
-    if not atk_data or not resp_data: return False, "資料錯誤"
+    if not resp_data: return False, "卡牌錯誤"
     
-    if resp_data['name'] == '聖光': return True, "聖光抵擋"
-    if atk_data['element'] == 'dark': return False, "暗屬性無法應戰"
-    
-    if atk_data['element'] == resp_data['element']: return True, "同屬性應戰"
-    if resp_data['element'] == 'dark': return True, "暗屬性應戰"
-    
+    resp_name = resp_data['name']
+    resp_elem = resp_data['element']
+
+    # 1. 聖光：不算轉移，而是直接抵銷 (在 handle_message 處理)
+    # 但如果前端是傳 "應戰 [聖光]"，這裡先回傳 True
+    if resp_name == '聖光': return True, "聖光"
+
+    # 2. 暗屬性攻擊：無法應戰 (除非是聖光，上面已擋)
+    if attack_elem == 'dark':
+        return False, "暗屬性無法被應戰(轉移)"
+
+    # 3. 轉移規則：同屬性 或 暗屬性
+    if attack_elem == resp_elem: return True, "同屬性轉移"
+    if resp_elem == 'dark': return True, "暗屬性轉移"
+
     return False, "屬性不符"
+
 
 # --- API ---
 @app.route("/liff")
 def liff_entry():
     return render_template('game.html', liff_id=LIFF_ID)
 
-# 新增：獲取所有玩家列表 (供測試選單用)
 @app.route("/api/get_all_players", methods=['GET'])
 def get_all_players():
-    # 將 dict 轉為 list，方便前端顯示
+    # 這裡依照「回合順位」排序回傳
+    if not game_state['turn_order']: return jsonify([])
+    
     player_list = []
-    # 這裡依照順序排序一下 (Red1, Red2...)
-    sorted_keys = sorted(players_db.keys())
-    for pid in sorted_keys:
+    for pid in game_state['turn_order']:
         p = players_db[pid]
         player_list.append({
             'id': pid,
@@ -124,34 +141,38 @@ def get_all_players():
 @app.route("/api/my_status", methods=['POST'])
 def get_my_status():
     data = request.json
-    # ★ 關鍵修改：優先讀取前端傳來的 'simulate_id'
-    # 如果是開發模式，我們不管 UserID，只看你想扮演誰
     target_id = data.get('simulate_id')
     
     if not target_id or target_id not in players_db:
-        return jsonify({'error': '請先在群組輸入 @測試開局'})
+        return jsonify({'error': '請先 @測試開局'})
     
     p = players_db[target_id]
     response = p.copy()
-    response['my_id'] = target_id # 回傳 ID 給前端確認
+    response['my_id'] = target_id
     
-    # 加入所有玩家列表 (供目標選擇用)
-    all_players_list = []
-    for pid, player in players_db.items():
-        all_players_list.append({
-            'name': player['name'],
-            'team': player['team'],
-            'id': pid
-        })
-    response['all_players'] = all_players_list
+    # 加入遊戲狀態資訊
+    turn_pid = game_state['turn_order'][game_state['current_turn_idx']]
+    response['game_phase'] = game_state['phase']
+    response['is_my_turn'] = (target_id == turn_pid)
     
-    if current_attack:
+    # 攻擊資訊 (只有當有人攻擊時才有)
+    chain = game_state['attack_chain']
+    if chain:
         response['incoming_attack'] = {
-            'attacker_name': current_attack.get('attacker_name'),
-            'target_id': current_attack.get('target_id')
+            'source_name': chain['source_name'], # 攻擊來源(上一手)
+            'target_id': chain['target_id'],     # 目前目標
+            'card_name': chain['card_name'],
+            'element': chain['element']
         }
     else:
         response['incoming_attack'] = None
+
+    # 玩家列表
+    all_players_list = []
+    for pid in game_state['turn_order']:
+        pp = players_db[pid]
+        all_players_list.append({'name': pp['name'], 'team': pp['team'], 'id': pid})
+    response['all_players'] = all_players_list
 
     return jsonify(response)
 
@@ -163,186 +184,223 @@ def callback():
         abort(400)
     return 'OK'
 
+
 # --- 訊息處理 ---
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     msg = event.message.text.strip()
     
-    # --- 1. 開發模式開局 ---
+    # 1. 開局
     if msg == "@測試開局":
         init_deck()
         players_db.clear()
         
-        # 建立 4 名玩家 (紅1, 紅2, 藍1, 藍2)
-        # 順位隨機分配其實就是打亂列表
+        # 建立玩家
         roles = [
             {'id': 'red1', 'name': '紅1', 'team': 'RED'},
             {'id': 'red2', 'name': '紅2', 'team': 'RED'},
             {'id': 'blue1', 'name': '藍1', 'team': 'BLUE'},
             {'id': 'blue2', 'name': '藍2', 'team': 'BLUE'}
         ]
-        random.shuffle(roles) # 洗亂順位
+        random.shuffle(roles)
         
-        # 建立資料庫
-        status_text = "🎮 測試局已建立！順位如下：\n"
+        game_state['turn_order'] = [r['id'] for r in roles]
+        game_state['current_turn_idx'] = 0
+        game_state['phase'] = 'ACTION'
+        game_state['attack_chain'] = None
+        
+        status_text = "🎮 遊戲開始！順位：\n"
         for idx, role in enumerate(roles):
-            # 發牌 (標準4張)
             hand = draw_cards(4)
             players_db[role['id']] = {
                 'name': role['name'],
                 'team': role['team'],
                 'hand': hand,
                 'shield': 0,
-                'order': idx + 1 # 順位
+                'order': idx + 1
             }
             status_text += f"{idx+1}. [{role['team']}] {role['name']}\n"
-            
-        status_text += "\n請點擊連結，選擇你要控制的玩家："
-        status_text += f"\nhttps://liff.line.me/{LIFF_ID}"
         
+        first_player = roles[0]['name']
+        status_text += f"\n👉 輪到 {first_player} 的回合！"
+        status_text += f"\nhttps://liff.line.me/{LIFF_ID}"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=status_text))
         return
 
-    # --- 2. 出牌邏輯 (需解析身份) ---
-    # 格式變更： "[紅1] 打出了 [火攻擊] 攻擊 藍1"
-    
-    # 檢查是否為遊戲指令
-    if "打出了" in msg or "應戰" in msg:
-        try:
-            # 解析身份：預期訊息開頭是 "[紅1] ..."
-            if not msg.startswith("["): return
-            
-            actor_name = msg.split("]")[0].replace("[", "") # 取得 '紅1'
-            real_msg = msg.split("]", 1)[1].strip() # 取得 '打出了...'
-            
-            # 找到對應的 player_id
-            actor_id = None
-            for pid, p in players_db.items():
-                if p['name'] == actor_name:
-                    actor_id = pid
-                    break
-            if not actor_id: return # 找不到對應玩家
-            
-            actor = players_db[actor_id]
+    # 2. 處理出牌指令
+    if "打出了" in msg or "應戰" in msg or "承受" in msg:
+        if not msg.startswith("["): return
+        
+        # 解析： [紅1] 打出了...
+        actor_name = msg.split("]")[0].replace("[", "")
+        actor_id = next((pid for pid, p in players_db.items() if p['name'] == actor_name), None)
+        if not actor_id: return
+        actor = players_db[actor_id]
+        
+        real_msg = msg.split("]", 1)[1].strip()
 
-            # --- 2.1 主動出牌 ---
-            if real_msg.startswith("打出了 ["):
-                parts = real_msg.split("]")
-                card_name = parts[0].split("[")[1]
-                
-                target_name = None
-                action = "unknown"
-                
-                if len(parts) > 1:
-                    suffix = parts[1].strip()
-                    if suffix.startswith("攻擊"):
-                        action = "attack"
-                        target_name = suffix.replace("攻擊", "").strip()
-                    elif suffix.startswith("對"):
-                        action = "support"
-                        target_name = suffix.replace("對", "").strip()
+        # --- 情境 A: 主動出牌 (ACTION Phase) ---
+        if real_msg.startswith("打出了 ["):
+            # 只有當前回合玩家可以動，且必須在 ACTION 階段
+            current_turn_pid = game_state['turn_order'][game_state['current_turn_idx']]
+            
+            if game_state['phase'] != 'ACTION':
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 現在不是主動出牌階段！(正在結算中)"))
+                return
+            if actor_id != current_turn_pid:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 不是你的回合！現在是 {players_db[current_turn_pid]['name']} 的回合"))
+                return
 
-                if card_name not in actor['hand']:
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"⚠️ {actor_name} 手牌不同步！"))
+            parts = real_msg.split("]")
+            card_name = parts[0].split("[")[1]
+            
+            # 解析
+            action = "unknown"
+            target_name = None
+            if "攻擊" in parts[1]:
+                action = "attack"
+                target_name = parts[1].split("攻擊")[1].strip()
+            elif "對" in parts[1]:
+                action = "support"
+                target_name = parts[1].split("對")[1].strip()
+
+            target_id = next((pid for pid, p in players_db.items() if p['name'] == target_name), None)
+            if not target_id: return
+            target = players_db[target_id]
+
+            if card_name not in actor['hand']: return
+            
+            # 聖盾 (不進入攻擊鏈，直接結算)
+            if action == "support" and card_name == "聖盾":
+                if target['shield'] >= 1:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 已有聖盾"))
+                    return
+                actor['hand'].remove(card_name)
+                discard_pile.append(card_name)
+                target['shield'] = 1
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🛡️ {actor_name} 為 {target_name} 施加了聖盾！"))
+                # 聖盾是法術，施放完通常回合繼續，或是結束？星杯規則通常法術不限次數，但攻擊限一次
+                # 這裡假設還可以繼續動作，或你要設計成施法完換人也行。這裡先不換人。
+
+            # 攻擊 (開啟攻擊鏈)
+            elif action == "attack":
+                if actor['team'] == target['team']:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 不可打隊友"))
                     return
 
-                # 找目標 ID
-                target_id = None
-                for pid, p in players_db.items():
-                    if p['name'] == target_name:
-                        target_id = pid
-                        break
+                actor['hand'].remove(card_name)
+                discard_pile.append(card_name)
 
-                # 聖盾 (Support)
-                if action == "support" and card_name == "聖盾":
-                    if not target_id: return
-                    target = players_db[target_id]
-                    if target['shield'] >= 1:
-                        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ {target_name} 已有聖盾"))
-                        return
-                    actor['hand'].remove(card_name)
-                    discard_pile.append(card_name)
-                    target['shield'] = 1
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🛡️ {actor_name} 給 {target_name} 上盾"))
-
-                # 攻擊 (Attack)
-                elif action == "attack":
-                    if not target_id: return
-                    target = players_db[target_id]
-                    if actor['team'] == target['team']:
-                        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 不可攻擊隊友"))
-                        return
-
-                    actor['hand'].remove(card_name)
-                    discard_pile.append(card_name)
-
-                    if target['shield'] > 0:
-                        target['shield'] = 0
-                        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🛡️ {target_name} 聖盾抵銷了攻擊"))
-                        return
-
-                    global current_attack
-                    card_data = CARD_MAP.get(card_name)
-                    current_attack = {
-                        'attacker_name': actor['name'], # 顯示用
-                        'attacker_id': actor_id,
-                        'target_id': target_id,
-                        'card_name': card_name,
-                        'damage': card_data['damage'],
-                        'element': card_data['element']
-                    }
-                    
-                    reply = f"⚡ {actor['name']} 攻擊 {target_name}！\n[{card_name}] (傷{card_data['damage']})"
-                    if card_data['element'] == 'dark': reply += "\n⚠️ 暗屬性"
+                # 判定聖盾 (直接抵銷，換下一人)
+                if target['shield'] > 0:
+                    target['shield'] = 0
+                    reply = next_turn(f"🛡️ 啪！{target_name} 的聖盾抵銷了攻擊！")
                     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+                    return
 
-            # --- 2.2 應戰 ---
-            elif real_msg.startswith("應戰 ["):
-                if not current_attack: return
-                if actor_id != current_attack['target_id']: return # 非目標不可應戰
-
-                parts = real_msg.split("]")
-                resp_card = parts[0].split("[")[1]
+                # 設定攻擊鏈
+                card_data = CARD_MAP.get(card_name)
+                game_state['phase'] = 'RESOLVING'
+                game_state['attack_chain'] = {
+                    'damage': card_data['damage'],
+                    'element': card_data['element'],
+                    'card_name': card_name,
+                    'source_id': actor_id,    # 攻擊來源 (上一手)
+                    'source_name': actor_name,
+                    'target_id': target_id    # 目前目標
+                }
                 
-                # 轉移目標
-                redirect_name = None
-                if len(parts) > 1 and "對" in parts[1]:
-                    redirect_name = parts[1].split("對")[1].strip()
+                reply = f"⚡ {actor_name} 對 {target_name} 發動 [{card_name}]！\n⚠️ 請 {target_name} 應戰 (轉移) 或 承受"
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
-                if resp_card not in actor['hand']: return
+        # --- 情境 B: 應戰 (RESOLVING Phase) ---
+        elif real_msg.startswith("應戰 ["):
+            chain = game_state['attack_chain']
+            if not chain: return
+            
+            # 只有目前目標可以動
+            if actor_id != chain['target_id']:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 不是你的應戰回合"))
+                return
 
-                is_valid, reason = check_counter_validity(current_attack['card_name'], resp_card)
+            parts = real_msg.split("]")
+            resp_card = parts[0].split("[")[1]
+            redirect_name = None
+            if "對" in parts[1]:
+                redirect_name = parts[1].split("對")[1].strip()
+
+            if resp_card not in actor['hand']: return
+
+            # 1. 聖光 = 抵銷 (Turn End)
+            if resp_card == "聖光":
+                actor['hand'].remove(resp_card)
+                discard_pile.append(resp_card)
+                reply = next_turn(f"✨ {actor_name} 使用【聖光】抵銷了攻擊！")
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+                return
+
+            # 2. 轉移驗證
+            if not redirect_name:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 應戰必須指定轉移目標！"))
+                return
+
+            new_target_id = next((pid for pid, p in players_db.items() if p['name'] == redirect_name), None)
+            
+            # 規則：不能轉移回上一手 (來源)
+            if new_target_id == chain['source_id']:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 不能轉移回攻擊來源 ({chain['source_name']})！"))
+                return
+            
+            # 檢查屬性
+            is_valid, reason = check_counter_validity(chain['element'], resp_card)
+            
+            if is_valid:
+                actor['hand'].remove(resp_card)
+                discard_pile.append(resp_card)
                 
-                if is_valid:
-                    actor['hand'].remove(resp_card)
-                    discard_pile.append(resp_card)
-                    reply = f"✨ {actor_name} 應戰成功 ({reason})"
-                    
-                    if redirect_name:
-                        if redirect_name == current_attack['attacker_name']:
-                            reply += "\n❌ 不能轉移回攻擊者，攻擊抵銷。"
-                            current_attack = {}
-                        else:
-                            reply += f"\n🔁 轉移給 {redirect_name} (開發中，目前視為抵銷)"
-                            current_attack = {}
-                    else:
-                        current_attack = {}
-                    
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-                else:
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ {reason}"))
-
-            # --- 2.3 承受 ---
-            elif real_msg == "承受":
-                if not current_attack: return
-                if actor_id != current_attack['target_id']: return
+                # ★ 更新攻擊鏈 (Chain Update)
+                # 攻擊屬性可能會變 (如果用暗牌應戰，屬性變成暗)
+                # 但星杯規則：應戰是「轉移傷害」，通常屬性跟隨原攻擊，或者看規則變體
+                # 這裡假設：用同屬性應戰，屬性不變。用暗屬性應戰，屬性轉為暗 (更難擋)
                 
-                res = resolve_damage(actor_id, current_attack['damage'])
-                current_attack = {}
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=res))
+                new_elem = chain['element']
+                resp_data = CARD_MAP.get(resp_card)
+                if resp_data['element'] == 'dark':
+                    new_elem = 'dark' # 變質為暗屬性
+                
+                # 更新來源為自己，目標為下一個人
+                chain['source_id'] = actor_id
+                chain['source_name'] = actor_name
+                chain['target_id'] = new_target_id
+                chain['element'] = new_elem
+                
+                reply = f"🔁 {actor_name} 用 [{resp_card}] 將攻擊轉移給了 {redirect_name}！"
+                if new_elem == 'dark': reply += "\n⚠️ 攻擊轉為暗屬性！"
+                reply += f"\n👉 請 {redirect_name} 應戰"
+                
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ {reason}"))
 
-        except Exception as e:
-            print(e)
+        # --- 情境 C: 承受 ---
+        elif real_msg == "承受":
+            chain = game_state['attack_chain']
+            if not chain: return
+            if actor_id != chain['target_id']: return
+            
+            # 結算傷害
+            p = players_db[actor_id]
+            dmg = chain['damage']
+            final_dmg = dmg # 這裡可加入減傷邏輯
+            
+            drawn = draw_cards(final_dmg)
+            p['hand'].extend(drawn)
+            
+            report = f"💥 {actor_name} 承受攻擊！\n受到 {final_dmg} 點傷害，摸了 {len(drawn)} 張牌。"
+            
+            # 換下一位
+            reply = next_turn(report)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 if __name__ == "__main__":
     app.run()
