@@ -14,47 +14,57 @@ handler = WebhookHandler(os.environ.get('CHANNEL_SECRET'))
 # ★★★ 填入你的 LIFF ID ★★★
 LIFF_ID = "2008575273-k4yRga2r" 
 
+# --- ★★★ 漏掉的變數宣告區 (請補上這裡) ★★★ ---
+players_db = {}      # 儲存所有玩家狀態
+game_deck = []       # 目前的抽牌堆
+discard_pile = []    # 棄牌堆
+current_attack = {}  # 暫存目前的攻擊狀態
+
 # --- 1. 讀取牌庫 (Load Card DB) ---
-# 為了避免找不到檔案，先寫死一個簡單版，或讀取 cards.json
-# 如果你有 cards.json 請取消註解下面兩行
-# with open('cards.json', 'r', encoding='utf-8') as f:
-#     CARD_DB = json.load(f)
+# 讀取 JSON 檔案 (假設檔案名為 cards.json)
+# 記得先 import json
+# 讀取 JSON 檔案 (如果沒有檔案，這裡會報錯，建議先用 try-except)
+CARD_DB_LIST = []
+try:
+    with open('cards.json', 'r', encoding='utf-8') as f:
+        CARD_DB_LIST = json.load(f)
+except FileNotFoundError:
+    # 如果還沒建立檔案，使用預設測試資料
+    CARD_DB_LIST = [
+        {"id": "f1", "name": "火攻擊", "count": 5, "type": "attack", "damage": 1},
+        {"id": "d1", "name": "閃避", "count": 5, "type": "defense", "damage": 0},
+        {"id": "m1", "name": "聖光", "count": 2, "type": "magic", "damage": 0}
+    ]
 
-# 暫時測試用的牌庫 (你可以用這個格式去寫 JSON)
-CARD_DB = [
-    {"id": "f1", "name": "火攻擊", "type": "attack", "damage": 1},
-    {"id": "w1", "name": "水攻擊", "type": "attack", "damage": 1},
-    {"id": "t1", "name": "雷攻擊", "type": "attack", "damage": 1},
-    {"id": "d1", "name": "閃避", "type": "defense", "damage": 0},
-    {"id": "s1", "name": "聖盾", "type": "defense", "damage": 0},
-    {"id": "h1", "name": "治癒", "type": "magic", "damage": 0}
-]
+# 建立快速查找表 (用名稱查屬性)
+CARD_MAP = { c['name']: c for c in CARD_DB_LIST }
 
-# 建立一個快速查找表 (Name -> Data)
-CARD_MAP = {c['name']: c for c in CARD_DB}
-
-# 角色設定 (加入被動修正)
+# 角色設定
 CHARACTERS = {
     'berserker': {'name': '狂戰士', 'max_hand': 4, 'passive_dmg': 1},
-    'sword_saint': {'name': '劍聖', 'max_hand': 6, 'passive_dmg': 0}, # 雖然規則書是寫手牌上限+1，但基礎是4嗎？通常劍聖上限較高
+    'sword_saint': {'name': '劍聖', 'max_hand': 6, 'passive_dmg': 0},
     'angel': {'name': '天使', 'max_hand': 4, 'passive_dmg': 0}
 }
 
-# 遊戲狀態
-# players_db 結構增加: 'morale'(士氣，其實是全隊共用，這邊先簡化放在個人身上測試)
-players_db = {}
-game_deck = []  # 牌堆
-discard_pile = [] # 棄牌堆
-
-# --- 輔助函數: 洗牌與重置 ---
 def init_deck():
     global game_deck, discard_pile
     game_deck = []
-    # 簡單模擬：放入 60 張攻擊，30 張防禦... (之後根據你的 JSON 產生)
-    for card in CARD_DB:
-        game_deck.extend([card['name']] * 10) # 每種牌放 10 張測試
+    
+    # ★ 關鍵修改：根據 count 數量將牌加入牌堆
+    for card_data in CARD_DB_LIST:
+        quantity = card_data.get('count', 1) # 如果沒寫 count 預設為 1
+        
+        # 把這張牌的名字，重複加入 quantity 次
+        # 例如 "聖光" count 是 2，就會加入兩次
+        for _ in range(quantity):
+            game_deck.append(card_data['name'])
+            
+    # 洗牌
     random.shuffle(game_deck)
     discard_pile = []
+    
+    print(f"牌堆初始化完成，總共有 {len(game_deck)} 張牌。")
+
 
 def draw_cards(count):
     global game_deck, discard_pile
