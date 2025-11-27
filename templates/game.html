@@ -410,56 +410,82 @@
 
         // --- 卡牌互動邏輯 ---
         function onCardClick(card, phase, isMyTurn) {
-            if (!isMyTurn) return; // 不是你的回合/階段
-
-            // 1. 棄牌階段：點擊 = 棄牌
+            if (!isMyTurn) return;
+        
+            // 1. 棄牌階段
             if (phase === 'DISCARDING') {
-                if (confirm(`確認棄掉 [${card}]？`)) sendCmd(`棄牌 [${card}]`);
+                if(confirm(`確認棄掉 [${card}]？`)) sendCmd(`棄牌 [${card}]`);
                 return;
             }
-
-            // 2. 摸牌階段：禁止操作手牌
+        
+            // 2. 摸牌階段
             if (phase === 'DRAWING') {
-                alert("請點擊上方的「點擊摸牌」按鈕！");
+                alert("請點擊上方橘色按鈕進行摸牌！");
                 return;
             }
-
+        
             // 3. 被攻擊 (應戰/轉移)
             const inc = myData.incoming_attack;
             if (inc && inc.target_id === myData.my_id) {
-                // 魔彈處理
+                
+                // A. 魔彈應戰
                 if (inc.type === 'missile') {
                     if (['魔彈','聖光','聖盾'].includes(card)) {
                         if(confirm(`使用 [${card}] 應對魔彈？`)) sendCmd(`打出了 [${card}]`);
                     } else {
-                        alert("魔彈只能用 魔彈/聖光/聖盾 應對！");
+                        alert("魔彈只能用 [魔彈/聖光/聖盾] 應對！");
                     }
                     return;
                 }
                 
-                // 普通攻擊處理
+                // B. 普通攻擊應戰 (前端預判)
+                const incomingElem = inc.element; // 後端傳來的攻擊屬性 (fire, water, dark...)
+                const cardType = getCardType(card); // atk, def, dark, magic
+                
+                // B1. 聖光
                 if (card === '聖光') {
-                    if (confirm("使用聖光抵銷攻擊？")) sendCmd(`應戰 [${card}]`);
+                    if(confirm("使用聖光抵銷？")) sendCmd(`應戰 [${card}]`);
+                    return;
+                }
+                
+                // B2. 攻擊牌應戰
+                // 取得該卡牌的屬性 (需簡單對應，這裡用 card name 判断)
+                let myElem = "none";
+                if (card.includes("火")) myElem = "fire";
+                else if (card.includes("水")) myElem = "water";
+                else if (card.includes("風")) myElem = "wind";
+                else if (card.includes("地")) myElem = "earth";
+                else if (card.includes("雷")) myElem = "thunder";
+                else if (card.includes("暗")) myElem = "dark";
+        
+                // 規則 1: 暗屬性攻擊不可被應戰 (除非聖光)
+                if (incomingElem === 'dark') {
+                    alert("⚠️ 暗屬性攻擊無法應戰！只能使用 [聖光] 或 [承受]");
+                    return;
+                }
+        
+                // 規則 2: 應戰必須 同屬性 OR 暗屬性
+                if (myElem === incomingElem || myElem === 'dark') {
+                    if(confirm(`用 [${card}] 應戰並轉移？`)) showTargets('COUNTER', card);
                 } else {
-                    if (confirm(`用 [${card}] 應戰並轉移？`)) showTargets('COUNTER', card);
+                    alert(`屬性不符！\n來襲：${incomingElem}\n你的牌：${myElem}\n\n(必須使用 同屬性 或 暗屬性 應戰)`);
                 }
                 return;
             }
-
+        
             // 4. 主動出牌 (ACTION)
             if (phase === 'ACTION') {
                 if (card.includes('攻擊') || card.includes('暗黑')) {
                     showTargets('ATTACK', card);
                 } else if (card === '魔彈') {
-                    if(confirm("發射魔彈？(自動鎖定下家)")) sendCmd(`打出了 [${card}]`);
+                    if(confirm("發射魔彈？")) sendCmd(`打出了 [${card}]`);
                 } else if (['聖盾','中毒','虛弱'].includes(card)) {
                     showTargets('ANY', card);
                 } else {
-                    alert("此牌無法主動使用 (通常用於應戰)");
+                    alert("此牌無法主動使用");
                 }
             }
         }
-
         // --- 目標選擇邏輯 ---
         function showTargets(mode, card) {
             selectedCard = card;
