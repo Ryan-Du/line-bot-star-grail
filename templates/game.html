@@ -3,173 +3,218 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>星杯傳說 - 戰場</title>
+    <title>星杯傳說 - 完整版</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        /* --- 全域設定 --- */
+        /* --- 1. 全域樣式 --- */
         body { 
-            background-color: #1a1a1a; 
-            color: #eee; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            margin: 0; padding: 0;
+            background-color: #121212; 
+            color: #e0e0e0; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0; 
+            padding: 0;
             text-align: center;
-            user-select: none; /* 防止連點選取文字 */
+            padding-bottom: 20px;
         }
-        h3 { margin: 10px 0; font-weight: normal; color: #ffcc00; }
-        
-        /* --- 登入/選角介面 --- */
+
+        /* --- 2. 登入選角介面 --- */
         #login-view { padding: 20px; }
         .role-btn {
-            display: block; width: 100%; padding: 15px; margin: 10px 0;
-            background: #333; border: 1px solid #555; color: white;
-            font-size: 18px; border-radius: 8px; cursor: pointer;
-            text-align: left; padding-left: 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            width: 100%; padding: 15px; margin-bottom: 12px;
+            background: #2c2c2c; border: 1px solid #444; color: white;
+            font-size: 16px; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
-        .role-btn:active { background: #555; }
-        .role-btn.RED { border-left: 10px solid #d32f2f; }
-        .role-btn.BLUE { border-left: 10px solid #1976d2; }
+        .role-btn:active { background: #444; transform: scale(0.98); }
+        .role-btn.RED { border-left: 8px solid #d32f2f; }
+        .role-btn.BLUE { border-left: 8px solid #1976d2; }
 
-        /* --- 遊戲主介面 --- */
-        #game-view { display: none; padding-bottom: 20px; }
-        
-        /* 1. 頂部戰績板 */
+        /* --- 3. 戰績板 (Scoreboard) --- */
         .scoreboard { 
             display: flex; justify-content: space-between; 
-            background: #000; padding: 5px 10px; font-size: 14px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            background: #1e1e1e; padding: 8px 12px;
+            border-bottom: 1px solid #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
-        .team-stat { width: 48%; padding: 5px; border-radius: 4px; }
-        .team-stat.RED { background: rgba(211, 47, 47, 0.2); border: 1px solid #d32f2f; }
-        .team-stat.BLUE { background: rgba(25, 118, 210, 0.2); border: 1px solid #1976d2; }
-        
-        .gem-container { height: 16px; margin-top: 2px; }
+        .team-box { 
+            width: 48%; padding: 6px; 
+            border-radius: 6px; background: rgba(255,255,255,0.05);
+            font-size: 13px; line-height: 1.5;
+        }
+        .team-box.RED { border: 1px solid #b71c1c; }
+        .team-box.BLUE { border: 1px solid #0d47a1; }
+
+        /* 寶石特效 */
+        .gems-row { height: 16px; margin-top: 4px; display: flex; justify-content: center; }
         .gem { 
-            display: inline-block; width: 12px; height: 12px; 
-            border-radius: 50%; margin-right: 2px; border: 1px solid #fff;
+            width: 10px; height: 10px; border-radius: 50%; margin: 0 2px; 
+            border: 1px solid rgba(255,255,255,0.6);
+            box-shadow: 0 0 5px currentColor;
         }
-        .gem.red { background: #f44; box-shadow: 0 0 4px #f00; }
-        .gem.blue { background: #44f; box-shadow: 0 0 4px #00f; }
+        .gem.red { background-color: #ff1744; color: #ff1744; }
+        .gem.blue { background-color: #2979ff; color: #2979ff; }
 
-        /* 2. 個人狀態列 */
+        /* --- 4. 玩家狀態列 --- */
         .status-bar {
-            padding: 10px; background: #2d2d2d; 
+            padding: 10px 15px; background: #252525;
             display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #444;
+            border-bottom: 1px solid #3e3e3e;
         }
-        .switch-btn { background: #444; color: #ccc; border: none; padding: 5px 10px; border-radius: 4px; }
+        .player-info { text-align: left; }
+        .player-name { font-size: 18px; font-weight: bold; color: #ffca28; }
+        .turn-indicator { font-size: 12px; color: #9e9e9e; margin-top: 2px; }
         
-        /* 3. 警告與提示區 */
+        /* --- 5. 提示與警告區 --- */
         #alert-box { 
-            display: none; margin: 10px; padding: 15px; 
-            border-radius: 8px; font-weight: bold;
-            animation: pulse 1.5s infinite;
+            display: none; margin: 15px; padding: 15px; 
+            border-radius: 8px; font-weight: bold; font-size: 15px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            animation: pulse 2s infinite;
         }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
-        .alert-danger { background: #b71c1c; border: 2px solid #ff5252; color: #fff; }
-        .alert-weak { background: #4a148c; border: 2px solid #ea80fc; color: #fff; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.85; } 100% { opacity: 1; } }
+        .alert-attack { background: #b71c1c; border: 1px solid #ff8a80; color: #ffebee; }
+        .alert-weak { background: #4a148c; border: 1px solid #ea80fc; color: #f3e5f5; }
 
-        /* 4. 手牌區 */
-        #hand-area { padding: 5px; min-height: 200px; }
+        /* --- 6. 摸牌與棄牌按鈕 --- */
+        .phase-btn {
+            display: block; width: 90%; margin: 10px auto; padding: 15px;
+            font-size: 18px; font-weight: bold; color: white; border: none; border-radius: 50px;
+            cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            transition: transform 0.1s;
+        }
+        .phase-btn:active { transform: scale(0.95); }
+        .btn-draw { 
+            background: linear-gradient(135deg, #ff9800, #f57c00); 
+            animation: bounce 1s infinite alternate;
+        }
+        @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+        
+        .discard-hint {
+            background: #d32f2f; color: white; padding: 10px; margin: 10px; border-radius: 5px;
+        }
+
+        /* --- 7. 手牌區域 --- */
+        #hand-area { padding: 10px 5px; min-height: 120px; }
         .card { 
-            display: inline-block; width: 70px; height: 96px; margin: 4px; 
-            border-radius: 6px; background: #e0e0e0; color: #333; 
+            display: inline-block; width: 72px; height: 100px; margin: 5px; 
+            border-radius: 8px; background: #eee; color: #222; 
             cursor: pointer; position: relative; vertical-align: top;
-            box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
-            font-size: 13px; font-weight: bold; line-height: 96px;
+            box-shadow: 2px 3px 6px rgba(0,0,0,0.4);
+            font-size: 13px; font-weight: bold; line-height: 100px;
+            border-bottom-width: 6px; border-bottom-style: solid;
         }
-        .card:active { transform: scale(0.95); }
-        /* 卡牌顏色定義 */
-        .card.atk { background: #ffcdd2; border-bottom: 5px solid #c62828; } /* 紅系 */
-        .card.def { background: #c8e6c9; border-bottom: 5px solid #2e7d32; } /* 綠系(閃避) */
-        .card.magic { background: #bbdefb; border-bottom: 5px solid #1565c0; } /* 藍系(法術) */
-        .card.dark { background: #cfd8dc; border-bottom: 5px solid #455a64; color: #000; } /* 暗系 */
+        /* 根據屬性配色 */
+        .card.atk { background: #ffebee; border-color: #c62828; color: #b71c1c; } /* 攻擊 */
+        .card.def { background: #e8f5e9; border-color: #2e7d32; color: #1b5e20; } /* 閃避/聖光 */
+        .card.magic { background: #e3f2fd; border-color: #1565c0; color: #0d47a1; } /* 法術 */
+        .card.dark { background: #cfd8dc; border-color: #37474f; color: #263238; } /* 暗屬性 */
 
-        /* 5. 行動按鈕區 */
-        .action-bar { 
+        /* --- 8. 底部行動列 --- */
+        #action-bar { 
             display: flex; justify-content: space-around; 
-            padding: 10px; border-top: 1px solid #444; margin-top: 10px;
+            padding: 15px 10px; border-top: 1px solid #333; margin-top: 10px;
+            background: #1a1a1a;
         }
         .act-btn {
-            width: 30%; padding: 10px; border: none; border-radius: 5px;
-            background: #424242; color: white; font-weight: bold;
+            width: 30%; padding: 12px; border: 1px solid #555; border-radius: 6px;
+            background: #333; color: #eee; font-weight: bold; cursor: pointer;
         }
-        .act-btn:active { background: #616161; }
+        .act-btn:active { background: #555; }
 
-        /* 6. 目標選擇區 (Modal) */
+        /* --- 9. 目標選擇視窗 (Modal) --- */
         #target-area { 
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); z-index: 999; padding-top: 50px;
+            background: rgba(0,0,0,0.95); z-index: 1000; padding-top: 60px;
         }
         .target-list { max-height: 60vh; overflow-y: auto; padding: 0 20px; }
         .target-btn {
-            display: block; width: 100%; padding: 15px; margin: 8px 0;
-            background: #333; border: 1px solid #666; color: white;
-            font-size: 16px; border-radius: 5px;
+            display: block; width: 100%; padding: 16px; margin: 10px 0;
+            background: #2c2c2c; border: 1px solid #555; color: white;
+            font-size: 18px; border-radius: 8px; cursor: pointer;
         }
         .cancel-btn { 
-            margin-top: 20px; padding: 10px 40px; background: #666; border: none; color: white; font-size: 16px; border-radius: 20px;
+            margin-top: 30px; padding: 12px 50px; background: #616161; 
+            border: none; color: white; font-size: 16px; border-radius: 30px;
         }
-
     </style>
 </head>
 <body>
-    <div id="loading">系統連線中...</div>
+    <div id="loading" style="padding:50px;">正在連線至星杯系統...</div>
 
-    <!-- 1. 角色選擇 (測試用) -->
+    <!-- ===== 登入選角頁面 ===== -->
     <div id="login-view" style="display:none;">
-        <h3>選擇扮演對象</h3>
+        <h3 style="color:#ffca28; margin-bottom:20px;">選擇扮演角色</h3>
         <div id="player-list"></div>
-        <p style="color:#777; font-size:12px;">(開發模式：請先在群組輸入 @測試開局)</p>
+        <p style="color:#666; font-size:12px; margin-top:30px;">
+            (開發測試模式：若無角色請在群組輸入 <b>@測試開局</b>)
+        </p>
     </div>
 
-    <!-- 2. 遊戲主畫面 -->
-    <div id="game-view">
-        <!-- 頂部戰績 -->
+    <!-- ===== 遊戲主畫面 ===== -->
+    <div id="game-view" style="display:none;">
+        
+        <!-- 頂部戰績板 -->
         <div class="scoreboard">
-            <div class="team-stat RED">
-                <div>❤️ 士氣: <span id="red-morale">15</span></div>
-                <div class="gem-container" id="red-gems"></div>
-                <div>🏆 星杯: <span id="red-grails">0</span></div>
+            <div class="team-box RED">
+                <div style="font-weight:bold; color:#ef5350;">RED 隊 (士氣 <span id="r-mor"></span>)</div>
+                <div class="gems-row" id="r-gems"></div>
+                <div style="margin-top:2px;">🏆 星杯: <span id="r-grails"></span></div>
             </div>
-            <div class="team-stat BLUE">
-                <div>💙 士氣: <span id="blue-morale">15</span></div>
-                <div class="gem-container" id="blue-gems"></div>
-                <div>🏆 星杯: <span id="blue-grails">0</span></div>
+            <div class="team-box BLUE">
+                <div style="font-weight:bold; color:#42a5f5;">BLUE 隊 (士氣 <span id="b-mor"></span>)</div>
+                <div class="gems-row" id="b-gems"></div>
+                <div style="margin-top:2px;">🏆 星杯: <span id="b-grails"></span></div>
             </div>
         </div>
 
         <!-- 狀態列 -->
         <div class="status-bar">
-            <div style="text-align:left;">
-                <span id="p-name" style="font-size:18px; font-weight:bold; color:#ffb300;"></span> 
-                <span id="p-team" style="font-size:14px;"></span>
-                <div id="turn-msg" style="color:#aaa; font-size:12px;">讀取中...</div>
+            <div class="player-info">
+                <div class="player-name" id="p-name"></div>
+                <div class="turn-indicator" id="turn-msg">載入中...</div>
             </div>
-            <button class="switch-btn" onclick="logout()">切換角色</button>
+            <button onclick="logout()" style="background:#424242; color:#fff; border:none; padding:8px 12px; border-radius:4px;">切換</button>
         </div>
 
-        <!-- 警告區 (被攻擊/虛弱) -->
+        <!-- 摸牌按鈕區 (DRAWING Phase) -->
+        <div id="draw-area" style="display:none;">
+            <button class="phase-btn btn-draw" onclick="sendCmd('@摸牌')">
+                🎴 點擊摸牌 <br>
+                <span style="font-size:14px; opacity:0.9;">(還需 <span id="draw-count"></span> 張)</span>
+            </button>
+        </div>
+
+        <!-- 棄牌提示區 (DISCARDING Phase) -->
+        <div id="discard-area" style="display:none;">
+            <div class="discard-hint">
+                ⚠️ 手牌過多！<br>
+                請點擊手牌棄掉 <span id="discard-count" style="font-weight:bold; font-size:1.4em;"></span> 張
+            </div>
+        </div>
+
+        <!-- 警告訊息區 (被攻擊/虛弱) -->
         <div id="alert-box">
             <div id="alert-msg"></div>
             <div id="alert-actions" style="margin-top:10px;"></div>
         </div>
 
-        <!-- 手牌區 -->
+        <!-- 手牌列表 -->
         <div id="hand-area">
             <div id="hand-list"></div>
         </div>
 
-        <!-- 特殊行動區 -->
-        <div class="action-bar" id="special-actions">
+        <!-- 底部行動列 (僅在 ACTION 階段顯示) -->
+        <div id="action-bar">
             <button class="act-btn" onclick="sendCmd('購買')">💰 購買</button>
             <button class="act-btn" onclick="sendCmd('合成')">⚗️ 合成</button>
             <button class="act-btn" onclick="sendCmd('提煉')">⚡ 提煉</button>
         </div>
     </div>
 
-    <!-- 3. 目標選擇彈窗 -->
+    <!-- ===== 目標選擇彈窗 ===== -->
     <div id="target-area">
-        <h3 id="target-title">選擇目標</h3>
+        <h3 id="target-title" style="color:#fff; font-size:22px;">選擇目標</h3>
         <div class="target-list" id="target-list"></div>
         <button class="cancel-btn" onclick="closeTarget()">取消</button>
     </div>
@@ -179,20 +224,20 @@
         let currentSimulateId = null;
         let myData = null;
         let selectedCard = "";
-        let actionType = ""; // ATTACK, SUPPORT, COUNTER
+        let actionType = ""; // ATTACK, SUPPORT, COUNTER, ANY
 
-        // 初始化
+        // --- 初始化 ---
         async function main() {
             try {
                 await liff.init({ liffId: LIFF_ID });
                 if (!liff.isLoggedIn()) { liff.login(); return; }
                 loadPlayerList();
             } catch (err) {
-                document.getElementById('loading').innerText = "LIFF 初始化失敗: " + err;
+                document.getElementById('loading').innerText = "LIFF Error: " + err;
             }
         }
 
-        // --- 登入流程 ---
+        // --- 登入與玩家列表 ---
         function loadPlayerList() {
             fetch('/api/get_all_players')
                 .then(r => r.json())
@@ -204,19 +249,23 @@
                     const container = document.getElementById('player-list');
                     container.innerHTML = '';
                     if (list.length === 0) {
-                        container.innerHTML = "<p>無玩家資料，請先在群組輸入 <b>@測試開局</b></p>";
-                        return;
+                        container.innerHTML = "<p style='color:#888'>暫無玩家資料</p>"; return;
                     }
+
                     list.forEach(p => {
                         let btn = document.createElement('div');
                         btn.className = `role-btn ${p.team}`;
-                        // 顯示狀態概要 (中毒/虛弱)
-                        let buffs = [];
-                        if(p.buffs && p.buffs.poison) buffs.push("☠️");
-                        if(p.buffs && p.buffs.weak) buffs.push("💤");
-                        if(p.buffs && p.buffs.shield) buffs.push("🛡️");
                         
-                        btn.innerHTML = `${p.name} (${p.team}) ${buffs.join('')} <span style="float:right">🃏${p.hand_count}</span>`;
+                        // 狀態圖示
+                        let buffs = "";
+                        if(p.buffs.poison) buffs += "☠️";
+                        if(p.buffs.weak) buffs += "💤";
+                        if(p.buffs.shield) buffs += "🛡️";
+
+                        btn.innerHTML = `
+                            <span>${p.name} <small>(${p.team})</small> ${buffs}</span>
+                            <span style="font-weight:bold;">🃏 ${p.hand_count}</span>
+                        `;
                         btn.onclick = () => loginAs(p.id);
                         container.appendChild(btn);
                     });
@@ -234,7 +283,7 @@
             loadPlayerList();
         }
 
-        // --- 資料同步 ---
+        // --- 核心狀態同步 ---
         function fetchStatus() {
             fetch('/api/my_status', {
                 method: 'POST',
@@ -250,90 +299,98 @@
             .catch(err => alert("連線錯誤: " + err));
         }
 
-        // --- 介面渲染 (Core) ---
+        // --- 介面渲染 (Render) ---
         function renderUI() {
             document.getElementById('game-view').style.display = 'block';
             
-            // 1. 玩家資訊
-            document.getElementById('p-name').innerText = myData.name;
-            document.getElementById('p-team').innerText = `(${myData.team})`;
-            
-            let turnText = myData.is_my_turn ? "★ 輪到你的回合！" : "等待其他玩家...";
-            if (myData.game_phase === 'RESOLVING' || myData.game_phase === 'RESOLVING_MISSILE') {
-                turnText = "⚡ 結算處理中...";
-            }
-            document.getElementById('turn-msg').innerText = turnText;
-
-            // 2. 戰績板
+            // 1. 戰績更新
             const t = myData.teams;
-            document.getElementById('red-morale').innerText = t.RED.morale;
-            document.getElementById('blue-morale').innerText = t.BLUE.morale;
-            document.getElementById('red-grails').innerText = t.RED.grails;
-            document.getElementById('blue-grails').innerText = t.BLUE.grails;
-            renderGems('red-gems', t.RED.gems);
-            renderGems('blue-gems', t.BLUE.gems);
+            document.getElementById('r-mor').innerText = t.RED.morale;
+            document.getElementById('b-mor').innerText = t.BLUE.morale;
+            document.getElementById('r-grails').innerText = t.RED.grails;
+            document.getElementById('b-grails').innerText = t.BLUE.grails;
+            renderGems('r-gems', t.RED.gems);
+            renderGems('b-gems', t.BLUE.gems);
 
-            // 3. 狀態檢查 (虛弱/被攻擊)
-            const alertBox = document.getElementById('alert-box');
-            const alertMsg = document.getElementById('alert-msg');
-            const alertActs = document.getElementById('alert-actions');
-            alertBox.style.display = 'none';
-            alertActs.innerHTML = '';
-            document.getElementById('special-actions').style.display = 'flex'; // 預設顯示行動列
+            // 2. 個人資訊
+            const p = myData; // 目前視角玩家
+            document.getElementById('p-name').innerText = `${p.name} (${p.team})`;
 
-            // 情境 A: 虛弱選擇
-            if (myData.game_phase === 'CHOOSING_WEAKNESS' && myData.is_my_turn) {
-                alertBox.className = 'alert-weak';
-                alertBox.style.display = 'block';
-                alertMsg.innerText = "💤 你處於虛弱狀態，回合開始前請選擇：";
+            // 3. 階段文字與介面切換
+            const phase = p.game_phase;
+            const isMyTurn = p.is_my_turn;
+            let turnText = "等待其他玩家...";
+
+            // 預設隱藏所有特殊區塊
+            document.getElementById('draw-area').style.display = 'none';
+            document.getElementById('discard-area').style.display = 'none';
+            document.getElementById('alert-box').style.display = 'none';
+            document.getElementById('action-bar').style.display = 'none';
+
+            if (isMyTurn) {
+                turnText = "★ 輪到你的回合";
                 
-                // 隱藏一般行動
-                document.getElementById('special-actions').style.display = 'none';
-                
-                alertActs.innerHTML = `
-                    <button class="act-btn" style="width:100%; margin-bottom:5px; background:#4a148c;" onclick="sendCmd('@摸牌')">摸 3 張牌 (解除虛弱)</button>
-                    <button class="act-btn" style="width:100%; background:#7b1fa2;" onclick="sendCmd('@跳過')">跳過回合</button>
-                `;
-            }
-            // 情境 B: 被攻擊/魔彈
-            else if (myData.incoming_attack && myData.incoming_attack.target_id === myData.my_id) {
-                alertBox.className = 'alert-danger';
-                alertBox.style.display = 'block';
-                const inc = myData.incoming_attack;
-                
-                if (inc.type === 'missile') {
-                    alertMsg.innerText = `⚠️ ${inc.source_name} 發射魔彈！傷害 ${inc.damage}`;
-                } else {
-                    alertMsg.innerText = `⚠️ ${inc.source_name} 發動 [${inc.card_name}] (${inc.element})！`;
+                if (phase === 'ACTION') {
+                    document.getElementById('action-bar').style.display = 'flex';
                 }
-
-                alertActs.innerHTML = `
-                    <button class="act-btn" style="width:100%; background:#d32f2f;" onclick="sendCmd('承受')">直接承受傷害</button>
+                else if (phase === 'DRAWING') {
+                    turnText = "★ 摸牌階段";
+                    document.getElementById('draw-area').style.display = 'block';
+                    document.getElementById('draw-count').innerText = p.pending_count;
+                }
+                else if (phase === 'DISCARDING') {
+                    turnText = "★ 棄牌階段";
+                    document.getElementById('discard-area').style.display = 'block';
+                    document.getElementById('discard-count').innerText = p.pending_count;
+                }
+                else if (phase === 'CHOOSING_WEAKNESS') {
+                    turnText = "★ 虛弱狀態選擇";
+                    const alertBox = document.getElementById('alert-box');
+                    alertBox.className = 'alert-weak';
+                    alertBox.style.display = 'block';
+                    document.getElementById('alert-msg').innerText = "💤 虛弱狀態：請選擇行動";
+                    document.getElementById('alert-actions').innerHTML = `
+                        <button class="act-btn" style="width:100%; margin-bottom:5px; background:#6a1b9a;" onclick="sendCmd('@摸牌')">摸 3 張 (解除虛弱)</button>
+                        <button class="act-btn" style="width:100%; background:#8e24aa;" onclick="sendCmd('@跳過')">跳過回合</button>
+                    `;
+                }
+            } else {
+                if (phase === 'RESOLVING') turnText = "⚡ 結算中...";
+            }
+            
+            // 被攻擊判定 (RESOLVING 階段)
+            const inc = p.incoming_attack;
+            if (inc && inc.target_id === p.my_id) {
+                const alertBox = document.getElementById('alert-box');
+                alertBox.className = 'alert-attack';
+                alertBox.style.display = 'block';
+                
+                let msg = "";
+                if (inc.type === 'missile') msg = `⚠️ 遭遇魔彈 (傷害 ${inc.damage})！`;
+                else msg = `⚠️ 來自 ${inc.source_name} 的 [${inc.card_name}] (${inc.element})！`;
+                
+                document.getElementById('alert-msg').innerText = msg;
+                document.getElementById('alert-actions').innerHTML = `
+                    <button class="act-btn" style="width:100%; background:#c62828;" onclick="sendCmd('承受')">直接承受傷害</button>
                 `;
             }
+
+            document.getElementById('turn-msg').innerText = turnText;
 
             // 4. 手牌渲染
             const list = document.getElementById('hand-list');
             list.innerHTML = '';
-            myData.hand.forEach(card => {
+            p.hand.forEach(cardName => {
                 let div = document.createElement('div');
-                let type = getCardType(card);
+                let type = getCardType(cardName);
                 div.className = `card ${type}`;
-                div.innerText = card;
-                div.onclick = () => onCardClick(card);
+                div.innerText = cardName;
+                div.onclick = () => onCardClick(cardName, phase, isMyTurn);
                 list.appendChild(div);
             });
         }
 
-        // --- 邏輯判斷 ---
-        
-        function getCardType(name) {
-            if (name.includes('暗黑')) return 'dark'; // 暗屬性特殊色
-            if (name.includes('攻擊')) return 'atk';
-            if (name.includes('聖光') || name.includes('閃避')) return 'def';
-            return 'magic'; // 聖盾, 治癒, 魔彈, 中毒, 虛弱
-        }
-
+        // --- 輔助函式 ---
         function renderGems(id, gems) {
             const el = document.getElementById(id);
             el.innerHTML = '';
@@ -344,128 +401,132 @@
             });
         }
 
-        function onCardClick(card) {
-            selectedCard = card;
-            const inc = myData.incoming_attack;
-            const isTargeted = (inc && inc.target_id === myData.my_id);
+        function getCardType(name) {
+            if (name.includes('暗黑')) return 'dark';
+            if (name.includes('攻擊')) return 'atk';
+            if (name.includes('聖光') || name.includes('閃避')) return 'def';
+            return 'magic'; // 聖盾, 魔彈, 中毒...
+        }
 
-            // --- 1. 被鎖定狀態 (應戰) ---
-            if (isTargeted) {
-                // 魔彈應戰
+        // --- 卡牌互動邏輯 ---
+        function onCardClick(card, phase, isMyTurn) {
+            if (!isMyTurn) return; // 不是你的回合/階段
+
+            // 1. 棄牌階段：點擊 = 棄牌
+            if (phase === 'DISCARDING') {
+                if (confirm(`確認棄掉 [${card}]？`)) sendCmd(`棄牌 [${card}]`);
+                return;
+            }
+
+            // 2. 摸牌階段：禁止操作手牌
+            if (phase === 'DRAWING') {
+                alert("請點擊上方的「點擊摸牌」按鈕！");
+                return;
+            }
+
+            // 3. 被攻擊 (應戰/轉移)
+            const inc = myData.incoming_attack;
+            if (inc && inc.target_id === myData.my_id) {
+                // 魔彈處理
                 if (inc.type === 'missile') {
-                    if (card === '魔彈' || card === '聖光' || card === '聖盾') {
-                         if(confirm(`使用 [${card}] 應對魔彈？`)) sendCmd(`打出了 [${card}]`);
+                    if (['魔彈','聖光','聖盾'].includes(card)) {
+                        if(confirm(`使用 [${card}] 應對魔彈？`)) sendCmd(`打出了 [${card}]`);
                     } else {
-                         alert("魔彈只能用 [魔彈/聖光/聖盾] 應對！");
+                        alert("魔彈只能用 魔彈/聖光/聖盾 應對！");
                     }
                     return;
                 }
                 
-                // 普通攻擊應戰
+                // 普通攻擊處理
                 if (card === '聖光') {
-                    if(confirm("使用聖光抵銷？")) sendAction(`應戰 [${card}]`); // 聖光無目標
+                    if (confirm("使用聖光抵銷攻擊？")) sendCmd(`應戰 [${card}]`);
                 } else {
-                    // 其他牌 (同屬性/暗屬性) 需轉移
-                    if (confirm(`用 [${card}] 應戰並轉移？`)) showTargets('COUNTER');
+                    if (confirm(`用 [${card}] 應戰並轉移？`)) showTargets('COUNTER', card);
                 }
                 return;
             }
 
-            // --- 2. 主動出牌 ---
-            if (!myData.is_my_turn) { alert("不是你的回合"); return; }
-            if (myData.game_phase !== 'ACTION') { alert("現在不能出牌"); return; }
-
-            // 判斷卡牌用途
-            if (card === '魔彈') {
-                if(confirm("發射魔彈？(自動鎖定下家)")) sendCmd(`打出了 [${card}]`);
-            }
-            else if (['聖盾','治癒','中毒','虛弱'].includes(card)) {
-                // 這些牌可以放任意對象 (規則允許)
-                // 聖盾/治癒通常對友方，中毒/虛弱對敵方，但讓玩家選比較自由
-                showTargets('ANY', card); 
-            }
-            else if (card.includes('攻擊') || card.includes('暗黑')) {
-                showTargets('ATTACK', card);
-            }
-            else if (card.includes('聖光')) {
-                alert("聖光通常用於應戰");
-            }
-            else {
-                alert("此牌無法主動使用");
+            // 4. 主動出牌 (ACTION)
+            if (phase === 'ACTION') {
+                if (card.includes('攻擊') || card.includes('暗黑')) {
+                    showTargets('ATTACK', card);
+                } else if (card === '魔彈') {
+                    if(confirm("發射魔彈？(自動鎖定下家)")) sendCmd(`打出了 [${card}]`);
+                } else if (['聖盾','中毒','虛弱'].includes(card)) {
+                    showTargets('ANY', card);
+                } else {
+                    alert("此牌無法主動使用 (通常用於應戰)");
+                }
             }
         }
 
-        // --- 目標選擇 ---
-        function showTargets(mode, cardName) {
+        // --- 目標選擇邏輯 ---
+        function showTargets(mode, card) {
+            selectedCard = card;
             actionType = mode;
             document.getElementById('target-area').style.display = 'block';
             
-            let filterFunc = null;
             let title = "";
+            let filter = p => true;
 
             if (mode === 'ATTACK') {
-                title = `用 [${cardName}] 攻擊...`;
-                filterFunc = p => p.team !== myData.team; // 只能打敵人
+                title = `用 [${card}] 攻擊...`;
+                filter = p => p.team !== myData.team;
             } else if (mode === 'ANY') {
-                title = `對誰使用 [${cardName}]？`;
-                filterFunc = p => true; // 所有人
+                title = `對誰使用 [${card}]？`;
             } else if (mode === 'COUNTER') {
-                title = "應戰轉移給...";
-                // 排除隊友 & 排除攻擊來源
+                title = `應戰轉移給...`;
                 let src = myData.incoming_attack ? myData.incoming_attack.source_name : "";
-                filterFunc = p => p.team !== myData.team && p.name !== src;
+                // 排除隊友 & 攻擊來源
+                filter = p => p.team !== myData.team && p.name !== src;
             }
 
             document.getElementById('target-title').innerText = title;
             const list = document.getElementById('target-list');
             list.innerHTML = '';
 
-            let targets = myData.all_players.filter(filterFunc);
+            let targets = myData.all_players.filter(filter);
             
             if (targets.length === 0) {
                 list.innerHTML = "<p style='color:#aaa'>無合法目標</p>";
             } else {
                 targets.forEach(p => {
-                    let btn = document.createElement('button');
-                    btn.className = 'target-btn';
-                    btn.style.borderLeft = `5px solid ${p.team==='RED'?'#d32f2f':'#1976d2'}`;
-                    btn.innerText = `${p.name} (${p.team})`;
-                    btn.onclick = () => confirmTarget(p.name);
-                    list.appendChild(btn);
+                    let b = document.createElement('button');
+                    b.className = 'target-btn';
+                    b.innerText = `${p.name} (${p.team})`;
+                    // 紅藍邊框區分
+                    b.style.borderLeft = `5px solid ${p.team==='RED'?'#d32f2f':'#1976d2'}`;
+                    
+                    b.onclick = () => {
+                        let cmd = "";
+                        if (mode === 'ATTACK') cmd = `打出了 [${selectedCard}] 攻擊 ${p.name}`;
+                        else if (mode === 'ANY') cmd = `打出了 [${selectedCard}] 對 ${p.name}`;
+                        else if (mode === 'COUNTER') cmd = `應戰 [${selectedCard}] 對 ${p.name}`;
+                        sendCmd(cmd);
+                    };
+                    list.appendChild(b);
                 });
             }
-        }
-
-        function confirmTarget(targetName) {
-            let msg = "";
-            if (actionType === 'ATTACK') msg = `打出了 [${selectedCard}] 攻擊 ${targetName}`;
-            else if (actionType === 'ANY') msg = `打出了 [${selectedCard}] 對 ${targetName}`;
-            else if (actionType === 'COUNTER') msg = `應戰 [${selectedCard}] 對 ${targetName}`;
-            
-            sendCmd(msg);
         }
 
         function closeTarget() {
             document.getElementById('target-area').style.display = 'none';
         }
 
-        function sendAction(text) { // 舊版相容
-            sendCmd(text);
-        }
-
         function sendCmd(text) {
-            let prefix = `[${myData.name}] `;
+            // 在開發模式下，我們加上 [角色名] 前綴，方便後端辨識
+            // 正式版可以改回直接傳指令
+            const prefix = `[${myData.name}] `;
             liff.sendMessages([{ type: 'text', text: prefix + text }])
                 .then(() => {
                     closeTarget();
                     liff.closeWindow();
                 })
                 .catch(err => {
-                    alert("發送失敗，請確認是在 LINE App 內開啟: " + err);
+                    alert("指令發送失敗: " + err);
                 });
         }
 
-        // 啟動
         main();
     </script>
 </body>
