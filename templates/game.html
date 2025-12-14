@@ -273,24 +273,28 @@
         }
 
         function sendCmd(text) {
-            liff.sendMessages([{type:'text', text:`[${myData.name}] ${text}`}]).then(()=>{
-                document.getElementById('target-area').style.display='none';
-                // 不關閉視窗，而是重新 fetch (為了連續測試)
-                fetchStatus();
-                // liff.closeWindow(); // 如果你想每次都關閉可保留
-            });
+            // 發送格式： [名字] 指令
+            // 範例： [紅1] 購買
+            // 範例： [紅1] 打出了 [火攻擊] 攻擊 藍1
+            const prefix = `[${myData.name}] `;
+            
+            // 確保不重複添加前綴 (如果 text 已經有前綴)
+            let finalMsg = text;
+            if (!text.startsWith("[")) {
+                finalMsg = prefix + text;
+            }
+    
+            liff.sendMessages([{ type: 'text', text: finalMsg }])
+                .then(() => {
+                    closeTarget();
+                    // 刷新頁面以更新狀態 (因為可能狀態還沒變，但為了流暢感)
+                    setTimeout(fetchStatus, 500); 
+                    // liff.closeWindow(); // 測試期間建議不要關閉視窗，方便連續操作
+                })
+                .catch(err => {
+                    alert("發送失敗: " + err);
+                });
         }
-        
-        function getPlayerName(id) {
-            let p = myData.all_players.find(x => x.id === id);
-            return p ? p.name : "未知";
-        }
-        
-        function renderGems(id, gems) {
-            document.getElementById(id).innerHTML = gems.map(c=>`<span class="gem ${c}"></span>`).join('');
-        }
-
-        main();
     </script>
 </body>
 </html>
