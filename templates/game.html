@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>星杯傳說 - 測試版</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'self' data: blob: 'unsafe-inline' 'unsafe-eval'">
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         /* (樣式部分保持上一個版本，增加快速切換列樣式) */
@@ -94,6 +95,11 @@
     </div>
 
     <script>
+        // ★ 強力偵錯區 ★
+        // 如果網頁一打開沒跳出這個視窗，代表 JavaScript 完全沒跑
+        // alert("系統啟動檢查：JavaScript 已載入"); 
+        // (註：如果覺得煩，確認修好後可以註解掉上面這行)
+
         const LIFF_ID = "{{ liff_id }}";
         let currentSimulateId = null;
         let myData = null;
@@ -101,17 +107,43 @@
         let actionType = "";
 
         async function main() {
-            await liff.init({ liffId: LIFF_ID });
-            if (!liff.isLoggedIn()) { liff.login(); return; }
-            // 首次加載先抓列表
-            fetch('/api/get_all_players').then(r=>r.json()).then(list => {
-                if(list.length>0) {
-                    currentSimulateId = list[0].id; // 預設選第一位
-                    fetchStatus();
-                } else {
-                    document.getElementById('loading').innerText = "請先 @測試開局";
+            try {
+                // 初始化 LIFF
+                await liff.init({ liffId: LIFF_ID });
+                
+                // 檢查是否登入
+                if (!liff.isLoggedIn()) { 
+                    liff.login(); 
+                    return; 
                 }
-            });
+                
+                // 載入玩家列表
+                loadPlayerList();
+                
+            } catch (err) {
+                // 如果 LIFF ID 錯了，這裡會報錯
+                alert("❌ LIFF 初始化失敗:\n" + err + "\n\n請檢查 app.py 的 LIFF_ID 是否正確！");
+                document.getElementById('loading').innerText = "啟動失敗: " + err;
+            }
+        }
+
+        function loadPlayerList() {
+            fetch('/api/get_all_players')
+                .then(r => r.json())
+                .then(list => {
+                    // 如果成功連到後端
+                    if(list.length > 0) {
+                        currentSimulateId = list[0].id; 
+                        fetchStatus();
+                    } else {
+                        document.getElementById('loading').innerText = "請先在群組輸入 @測試開局";
+                    }
+                })
+                .catch(err => {
+                    // 如果連不到後端
+                    alert("❌ 無法連線到伺服器:\n" + err + "\n\n請確認 Render 伺服器是否活著");
+                    document.getElementById('loading').innerText = "連線錯誤";
+                });
         }
 
         function fetchStatus() {
@@ -295,6 +327,7 @@
                     alert("發送失敗: " + err);
                 });
         }
+        main();
     </script>
 </body>
 </html>
