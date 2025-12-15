@@ -12,34 +12,33 @@ line_bot_api = LineBotApi(os.environ.get('CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.environ.get('CHANNEL_SECRET'))
 LIFF_ID = "2008575273-k4yRga2r"
 
+# --- 遊戲常數 ---
+HAND_LIMIT = 6       # 手牌上限
+GEM_LIMIT = 5        # 戰績區寶石上限
+WIN_GRAIL_COUNT = 5  # 獲勝星杯數
+
 # --- 全域變數 ---
 players_db = {}
 game_deck = []
 discard_pile = []
 
-# 遊戲參數
-HAND_LIMIT = 6       # 手牌上限
-GEM_LIMIT = 5        # 戰績區寶石上限
-WIN_GRAIL_COUNT = 5  # 獲勝星杯數
-
 game_state = {
     'turn_order': [],     
     'current_turn_idx': 0, 
-    # Phase: ACTION, RESOLVING, RESOLVING_MISSILE, CHOOSING_WEAKNESS, DRAWING, DISCARDING
     'phase': 'WAITING',   
     'attack_chain': None, 
     'missile_chain': None,
     'active_player_id': None, 
     'pending_draw_count': 0,
-    # 控制摸牌/棄牌結束後的流向: 'NEXT_TURN' (換人) 或 'ACTION' (繼續回合)
-    'next_phase_after_clean': 'NEXT_TURN',
+    'next_phase_after_clean': 'NEXT_TURN', # 控制摸牌結束後的去向
     'teams': {
         'RED': {'morale': 15, 'gems': [], 'grails': 0}, 
         'BLUE': {'morale': 15, 'gems': [], 'grails': 0}
     }
 }
 
-# --- 卡牌資料 (直接內建以確保開局有牌) ---
+# --- 1. 強制內建卡牌資料 (解決開局沒牌的問題) ---
+# 不再讀取 cards.json，直接寫死在程式碼中以確保穩定
 CARD_DB_LIST = [
     {"id": "atk_fire", "name": "火攻擊", "type": "attack", "element": "fire", "damage": 2, "count": 10},
     {"id": "atk_water", "name": "水攻擊", "type": "attack", "element": "water", "damage": 2, "count": 10},
@@ -56,23 +55,21 @@ CARD_DB_LIST = [
 CARD_MAP = { c['name']: c for c in CARD_DB_LIST }
 
 # --- 輔助函數 ---
+
 def init_deck():
+    """初始化牌堆"""
     global game_deck, discard_pile
     game_deck = []
-    # 確保資料庫有載入
-    if not CARD_DB_LIST:
-        print("Error: CARD_DB_LIST is empty!")
-        return
-        
     for card_data in CARD_DB_LIST:
         qty = card_data.get('count', 1)
         for _ in range(qty):
             game_deck.append(card_data['name'])
     random.shuffle(game_deck)
     discard_pile = []
-    print(f"Deck initialized: {len(game_deck)} cards.")
+    print(f"Deck Initialized: {len(game_deck)} cards.")
 
 def draw_cards_from_deck(count):
+    """抽牌"""
     global game_deck, discard_pile
     drawn = []
     for _ in range(count):
@@ -90,6 +87,7 @@ def get_current_player_id():
     return game_state['turn_order'][game_state['current_turn_idx']]
 
 def add_gem(team_name, color):
+    """增加寶石 (不超過上限)"""
     team = game_state['teams'][team_name]
     if len(team['gems']) < GEM_LIMIT:
         team['gems'].append(color)
@@ -97,6 +95,7 @@ def add_gem(team_name, color):
     return False
 
 def check_counter_validity(attack_elem, respond_card_name):
+    """檢查應戰規則"""
     resp_data = CARD_MAP.get(respond_card_name)
     if not resp_data: return False, "卡牌錯誤"
     resp_elem = resp_data['element']
@@ -106,26 +105,22 @@ def check_counter_validity(attack_elem, respond_card_name):
     if resp_elem == 'dark': return True, "暗屬性應戰"
     return False, f"屬性不符 ({attack_elem} vs {resp_elem})"
 
-# --- 狀態流轉控制 ---
+# --- 流程控制 ---
 
 def prepare_draw_phase(player_id, count, msg_prefix=""):
     """進入摸牌階段"""
-    # 如果不需要摸牌，直接檢查手牌上限
-    if count <= 0:
-        return check_discard_phase(player_id, msg_prefix)
+    if count <= 0: return check_discard_phase(player_id, msg_prefix)
     
     game_state['phase'] = 'DRAWING'
     game_state['active_player_id'] = player_id
     game_state['pending_draw_count'] = count
-    
     p = players_db[player_id]
     return f"{msg_prefix}\n🎴 請 {p['name']} 摸牌 (需摸 {count} 張)"
 
 def check_discard_phase(player_id, msg_prefix=""):
-    """檢查手牌上限，進入棄牌或結束"""
+    """檢查棄牌"""
     p = players_db[player_id]
     excess = len(p['hand']) - HAND_LIMIT
-    
     if excess > 0:
         game_state['phase'] = 'DISCARDING'
         game_state['active_player_id'] = player_id
@@ -135,27 +130,27 @@ def check_discard_phase(player_id, msg_prefix=""):
         return proceed_after_clean(msg_prefix)
 
 def proceed_after_clean(msg_prefix=""):
-    """手牌整理乾淨後的流向控制"""
+    """手牌整理後的流向"""
     next_step = game_state['next_phase_after_clean']
     
     if next_step == 'ACTION':
-        # 回到該玩家的主動回合 (例如中毒摸牌後、購買後、合成後)
+        # 回到該玩家的回合 (例如購買後、中毒後)
         game_state['phase'] = 'ACTION'
         game_state['active_player_id'] = None
-        game_state['next_phase_after_clean'] = 'NEXT_TURN' # 重置預設值
+        game_state['next_phase_after_clean'] = 'NEXT_TURN' # 重置
         
         pid = get_current_player_id()
         p = players_db[pid]
         return f"{msg_prefix}\n👉 輪到 {p['name']} 主動行動！"
     else:
-        # 換下一位
         return next_turn(msg_prefix)
 
 def resolve_damage_init(target_id, damage_amount, source_type="attack", next_phase='NEXT_TURN'):
-    """結算傷害與產石，並設定後續流程"""
-    game_state['next_phase_after_clean'] = next_phase
-    
+    """結算傷害 -> 產石 -> 進入摸牌"""
+    game_state['next_phase_after_clean'] = next_phase # 設定目標
     player = players_db.get(target_id)
+    
+    # 這裡的 heal_points 是角色技能的治療點，不是聖光
     heal = player.get('heal_points', 0)
     actual_heal = min(damage_amount, heal)
     final_damage = damage_amount - actual_heal
@@ -164,6 +159,7 @@ def resolve_damage_init(target_id, damage_amount, source_type="attack", next_pha
     msg = f"🛡️ 結算：傷{damage_amount} (癒{actual_heal}) = {final_damage}。"
     
     if final_damage > 0:
+        # 產石邏輯
         attacker_team = "RED" if player['team'] == "BLUE" else "BLUE"
         gem_color = "red" if source_type == "attack" else "blue"
         if add_gem(attacker_team, gem_color): 
@@ -172,7 +168,7 @@ def resolve_damage_init(target_id, damage_amount, source_type="attack", next_pha
     return prepare_draw_phase(target_id, final_damage, msg)
 
 def next_turn(prev_msg=""):
-    """切換回合"""
+    """回合切換"""
     total = len(game_state['turn_order'])
     game_state['current_turn_idx'] = (game_state['current_turn_idx'] + 1) % total
     game_state['attack_chain'] = None
@@ -191,9 +187,8 @@ def next_turn(prev_msg=""):
         game_state['active_player_id'] = pid
         return f"{prev_msg}\n{extra_msg}\n👉 輪到 {p['name']} (虛弱狀態)\n請選擇 @摸牌 或 @跳過"
 
-    # 中毒處理 (扣1血 -> 摸牌 -> ACTION)
+    # 中毒 (回合開始扣1血 -> 摸牌 -> ACTION)
     if p['buffs']['poison']:
-        # 中毒不換人，處理完後進入 ACTION
         return f"{prev_msg}\n☠️ {p['name']} 中毒發作！\n" + resolve_damage_init(pid, 1, source_type="magic", next_phase='ACTION')
 
     return f"{prev_msg}\n👉 輪到 [{p['team']}] {p['name']} 的回合！"
@@ -273,7 +268,7 @@ def handle_message(event):
     
     # 開局
     if msg == "@測試開局":
-        init_deck() # 確保牌堆初始化
+        init_deck()
         players_db.clear()
         game_state['teams'] = {'RED': {'morale': 15, 'gems': [], 'grails': 0}, 'BLUE': {'morale': 15, 'gems': [], 'grails': 0}}
         roles = [{'id': 'red1', 'name': '紅1', 'team': 'RED'}, {'id': 'red2', 'name': '紅2', 'team': 'RED'}, {'id': 'blue1', 'name': '藍1', 'team': 'BLUE'}, {'id': 'blue2', 'name': '藍2', 'team': 'BLUE'}]
@@ -287,7 +282,8 @@ def handle_message(event):
         
         txt = "🎮 遊戲開始！\n"
         for r in roles:
-            hand = draw_cards_from_deck(4) # 發4張牌
+            # 確保起始手牌 4 張
+            hand = draw_cards_from_deck(4) 
             players_db[r['id']] = {
                 'name': r['name'], 'team': r['team'], 'hand': hand,
                 'buffs': {'shield': 0, 'poison': False, 'weak': False}, 'heal_points': 0,
@@ -299,7 +295,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=txt))
         return
 
-    # 解析指令 (支持格式: [名字] 指令)
+    # 解析指令
     actor_id = None
     real_msg = msg
     
@@ -310,7 +306,7 @@ def handle_message(event):
             if "]" in msg: real_msg = msg.split("]", 1)[1].strip()
         except: pass
 
-    # 若解析失敗，嘗試用 active_player (針對摸牌/棄牌)
+    # Fallback for @ commands
     if not actor_id and game_state['active_player_id']:
         actor_id = game_state['active_player_id']
     
@@ -324,7 +320,7 @@ def handle_message(event):
         if "@摸牌" in real_msg:
             cards = draw_cards_from_deck(3); actor['hand'].extend(cards); actor['buffs']['weak'] = False
             game_state['phase'] = 'ACTION'
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"💫 {actor_name} 摸3張牌解除虛弱。\n👉 回合開始！"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"💫 {actor_name} 摸了3張牌，解除虛弱。\n👉 回合開始！"))
             return
         elif "@跳過" in real_msg:
             actor['buffs']['weak'] = False
@@ -344,7 +340,7 @@ def handle_message(event):
                     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
             return
 
-    # --- 3. 棄牌 (暗棄) ---
+    # --- 3. 棄牌 ---
     if game_state['phase'] == 'DISCARDING':
         if actor_id != game_state['active_player_id']: return
         if "棄牌" in real_msg:
@@ -360,71 +356,85 @@ def handle_message(event):
             except: pass
             return
 
-    # --- 4. ACTION 階段 (包含修正後的購買/合成/提煉) ---
+    # --- 4. ACTION 階段 (特殊行動修正) ---
     if game_state['phase'] == 'ACTION':
         if actor_id != get_current_player_id(): return 
 
-        # A. 購買：抽3張，+1紅+1藍
+        # A. 購買 (修正：產出寶石+摸牌)
         if "購買" in real_msg:
             team = game_state['teams'][actor['team']]
-            if len(actor['hand']) + 3 > HAND_LIMIT:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 手牌將超過上限，無法購買")); return
-            if len(team['gems']) + 2 > GEM_LIMIT:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 戰績區能量將滿，無法購買")); return
             
-            drawn = draw_cards_from_deck(3); actor['hand'].extend(drawn)
+            # 規則 1: 購買前檢查手牌上限 (摸3張後不能超過)
+            if len(actor['hand']) + 3 > HAND_LIMIT:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 手牌將超過上限 ({HAND_LIMIT})，無法購買")); return
+            
+            # 規則 2: 購買後寶石不能超過上限 (增加 1紅+1藍 = 2顆)
+            if len(team['gems']) + 2 > GEM_LIMIT:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 戰績區能量將滿 ({GEM_LIMIT})，無法購買")); return
+            
+            # 執行
+            drawn = draw_cards_from_deck(3)
+            actor['hand'].extend(drawn)
             add_gem(actor['team'], 'red')
             add_gem(actor['team'], 'blue')
             
-            # 購買後，進入下一回合 (手牌已檢查過不會爆，所以不用 check_discard，但為了保險起見走 check_discard 流程)
-            # 規則：不強制棄牌，如果不爆牌就換人
+            # 換下一位 (使用 check_discard_phase 確保安全，設定 next=NEXT_TURN)
             game_state['next_phase_after_clean'] = 'NEXT_TURN'
             reply = check_discard_phase(actor_id, f"💰 {actor_name} 購買：摸3張，獲得紅藍能量。")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
             return
 
-        # B. 合成：抽3張，消耗3顆(任選)，星杯+1，敵士氣-1
+        # B. 合成 (修正：消耗寶石 -> 產星杯 -> 抽牌)
         if "合成" in real_msg:
             team = game_state['teams'][actor['team']]
+            
+            # 規則 1: 手牌檢查
             if len(actor['hand']) + 3 > HAND_LIMIT:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 手牌將超過上限，無法合成")); return
-            if len(team['gems']) < 3:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 能量不足 3 顆")); return
             
-            # 消耗前3顆 (簡化：先進先出)
-            del team['gems'][:3]
+            # 規則 2: 寶石檢查 (需3顆)
+            if len(team['gems']) < 3:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 能量不足 3 顆，無法合成")); return
+            
+            # 執行
+            del team['gems'][:3] # 移除前三顆
             team['grails'] += 1
+            drawn = draw_cards_from_deck(3)
+            actor['hand'].extend(drawn)
+            
+            # 敵方士氣 -1
             enemy_team = "BLUE" if actor['team'] == "RED" else "RED"
             game_state['teams'][enemy_team]['morale'] -= 1
             
-            drawn = draw_cards_from_deck(3); actor['hand'].extend(drawn)
-            
-            # 檢查獲勝
+            # 獲勝判斷
             if team['grails'] >= WIN_GRAIL_COUNT:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏆 {actor_name} 合成星杯！\n🎉 [{actor['team']}] 集齊5個星杯，獲勝！"))
-                return # 遊戲結束
-            
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏆 {actor_name} 合成星杯！\n🎉 [{actor['team']}] 達成條件，遊戲獲勝！"))
+                return
+            if game_state['teams'][enemy_team]['morale'] <= 0:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏆 {enemy_team} 士氣歸零！\n🎉 [{actor['team']}] 獲勝！"))
+                return
+
             game_state['next_phase_after_clean'] = 'NEXT_TURN'
             reply = check_discard_phase(actor_id, f"⚗️ {actor_name} 合成：摸3張，星杯+1，{enemy_team}士氣-1。")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
             return
 
-        # C. 提煉：戰績區 -> 能量區 (最多2)
+        # C. 提煉 (提取戰績區 -> 個人區)
         if "提煉" in real_msg:
             team = game_state['teams'][actor['team']]
             if not team['gems']: 
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無能量可提煉")); return
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 戰績區無能量可提煉")); return
             
+            # 最多提 2 顆
             count = min(2, len(team['gems']))
             extracted = []
             for _ in range(count):
                 g = team['gems'].pop(0); actor['energy'].append(g); extracted.append(g)
             
-            # 提煉後換人
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=next_turn(f"⚡ {actor_name} 提煉了 {len(extracted)} 顆能量到此角色。")))
             return
 
-        # D. 卡牌行動
+        # D. 卡牌行動 (魔彈/聖盾/攻擊)
         if "打出了 [" in real_msg:
             parts = real_msg.split("]"); card_name = parts[0].split("[")[1]; target_id = None
             if len(parts)>1 and ("攻擊" in parts[1] or "對" in parts[1]):
@@ -466,18 +476,14 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"⚡ {actor_name} 攻擊 {players_db[target_id]['name']}！請應戰/承受"))
                 return
 
-    # RESOLVING, RESOLVING_MISSILE (保持不變)
-    # ... 請直接沿用上一版的 RESOLVING 邏輯，
-    # 唯一要注意的是：承受傷害時，需呼叫 resolve_damage_init(..., next_phase='NEXT_TURN')
-    # 這是預設值，所以直接呼叫即可。
-    
-    # 為了讓程式碼完整運作，這裡補上 RESOLVING 邏輯
+    # RESOLVING (應戰/承受)
     if game_state['phase'] == 'RESOLVING':
         chain = game_state['attack_chain']
         if actor_id != chain['target_id']: return
-        
+        target = players_db[actor_id]
+
         if "承受" in real_msg:
-            target = players_db[actor_id]
+            # 聖盾判斷
             if target['buffs']['shield'] > 0:
                 target['buffs']['shield'] = 0
                 reply = check_discard_phase(actor_id, f"🛡️ {actor_name} 消耗聖盾，抵銷了攻擊！")
@@ -505,6 +511,7 @@ def handle_message(event):
                      if CARD_MAP[resp_card]['element'] == 'dark': chain['element'] = 'dark'
                      line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🔁 攻擊轉移給 {redirect_name} ({chain['element']})！"))
 
+    # 魔彈結算
     if game_state['phase'] == 'RESOLVING_MISSILE':
         chain = game_state['missile_chain']
         if actor_id != chain['target_id']: return
